@@ -25,9 +25,9 @@ except ImportError:
 
 
 try:
-    from django.db.backends.utils import CursorDebugWrapper
+    from django.db.backends.utils import CursorWrapper, CursorDebugWrapper
 except ImportError:
-    from django.db.backends.util import CursorDebugWrapper
+    from django.db.backends.util import CursorWrapper, CursorDebugWrapper
 
 if hasattr(logging, "NullHandler"):
     NullHandler = logging.NullHandler
@@ -101,15 +101,22 @@ class QueryInspectMiddleware(MiddlewareMixin):
 
         def tb_wrap(fn):
             def wrapper(self, *args, **kwargs):
+                if settings.DEBUG is False:
+                    self.db.force_debug_cursor = True
                 try:
                     return fn(self, *args, **kwargs)
                 finally:
                     if hasattr(self.db, "queries"):
                         tb = traceback.extract_stack()
                         tb = [f for f in tb if should_include(f[0])]
-                        self.db.queries[-1]["tb"] = tb
+                        if self.db.queries:
+                            self.db.queries[-1]["tb"] = tb
 
             return wrapper
+
+        if settings.DEBUG is False:
+            wrapper_exec = CursorWrapper._execute_with_wrappers
+            CursorWrapper._execute_with_wrappers = tb_wrap(wrapper_exec)
 
         CursorDebugWrapper.execute = tb_wrap(real_exec)
         CursorDebugWrapper.executemany = tb_wrap(real_exec_many)
@@ -231,6 +238,13 @@ class QueryInspectMiddleware(MiddlewareMixin):
                         qi.sql,
                     )
                 )
+                # Update Prometheus metrics for each file that executed a query
+                for summary in qi.summaries:
+                    if summary is not []:
+                        cls.sql_query_latency.labels(
+                            file=summary.filename, linenum=summary.lineno
+                        ).set(qi.time)
+
 
     @staticmethod
     def truncate_sql(sql):
