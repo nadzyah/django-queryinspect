@@ -42,9 +42,7 @@ log = logging.getLogger(__name__)
 log.addHandler(NullHandler())
 
 cfg = dict(
-    enabled=(
-        settings.DEBUG and getattr(settings, "QUERY_INSPECT_ENABLED", False)
-    ),
+    enabled=getattr(settings, "QUERY_INSPECT_ENABLED", False),
     log_stats=getattr(settings, "QUERY_INSPECT_LOG_STATS", True),
     header_stats=getattr(settings, "QUERY_INSPECT_HEADER_STATS", True),
     log_queries=getattr(settings, "QUERY_INSPECT_LOG_QUERIES", False),
