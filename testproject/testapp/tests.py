@@ -1,5 +1,6 @@
 from django.test import TestCase
 
+from django.conf import settings
 from .models import Author, Book, Publisher
 from .memorylog import MemoryHandler
 
@@ -102,6 +103,10 @@ class TestQueryInspect(TestCase):
         self.assertEqual(response['X-QueryInspect-Num-SQL-Queries'], '12')
         self.assertTrue('X-QueryInspect-Total-Request-Time' in response)
         self.assertEqual(response['X-QueryInspect-Duplicate-SQL-Queries'], '9')
+
+    def test_non_debug_mode(self):
+        settings.DEBUG = False
+        self.test_single_query_view()
 
     # Since we log full sql query, we don't need to run this test
     # def test_sql_truncate(self):
