@@ -70,9 +70,17 @@ class QueryInspectMiddleware(MiddlewareMixin):
     sql_id_pattern = re.compile(r"=\s*\d+")
     registry = CollectorRegistry()
 
-    sql_query_latency = Gauge(
-        name="django_sql_query_latency",
-        documentation="The latency of django SQL query in milliseconds",
+    sql_query_absolute_latency = Gauge(
+        name="django_sql_query_absolute_latency",
+        documentation="The latency of django SQL query in milliseconds if its"
+        " greater than the absolute limit",
+        labelnames=["file", "linenum"],
+    )
+    sql_query_stddev_latency = Gauge(
+        name="django_sql_query_stddev_latency",
+        documentation="The latency of django SQL query in milliseconds if its"
+        f" greater than than {cfg['stddev_limit']} standard deviations above "
+        "the mean query time",
         labelnames=["file", "linenum"],
     )
     # sql_query_dups = Gauge(
@@ -80,7 +88,8 @@ class QueryInspectMiddleware(MiddlewareMixin):
     #     documentation="The number of django SQL query duplicates",
     #     labelnames=["file"]
     # )
-    registry.register(sql_query_latency)
+    registry.register(sql_query_absolute_latency)
+    registry.register(sql_query_stddev_latency)
     # registry.register(sql_query_dups)
 
     @classmethod
@@ -200,23 +209,39 @@ class QueryInspectMiddleware(MiddlewareMixin):
 
         for qi in infos:
             if qi.time > query_limit:
-                log.warning(
-                    "[SQL] query execution of %d ms over limit of "
-                    "%d ms (%d dev above mean): %s"
-                    % (
+                # Update Prometheus metrics for each file that executed a query
+                files = []
+                lines = []
+                for summary in qi.summaries:
+                    if summary is not []:
+                        f = summary.filename
+                        linenum = summary.lineno
+                        files.append(f)
+                        lines.append(linenum)
+                        cls.sql_query_stddev_latency.labels(
+                            file=f, linenum=linenum
+                        ).set(qi.time)
+                if files and lines:
+                    log.warning(
+                        "[SQL] query execution of %d ms over limit of "
+                        "%d ms (%d dev above mean) in file %s, line number "
+                        "%d: %s",
                         qi.time * 1000,
                         query_limit * 1000,
                         cfg["stddev_limit"],
-                        # cls.truncate_sql(qi.sql),
+                        files[0],
+                        lines[0],
                         qi.sql,
                     )
-                )
-                # Update Prometheus metrics for each file that executed a query
-                for summary in qi.summaries:
-                    if summary is not []:
-                        cls.sql_query_latency.labels(
-                            file=summary.filename, linenum=summary.lineno
-                        ).set(qi.time)
+                else:
+                    log.warning(
+                        "[SQL] query execution of %d ms over limit of "
+                        "%d ms (%d dev above mean): %s",
+                        qi.time * 1000,
+                        query_limit * 1000,
+                        cfg["stddev_limit"],
+                        qi.sql,
+                    )
 
     @classmethod
     def check_absolute_limit(cls, infos):
@@ -228,22 +253,38 @@ class QueryInspectMiddleware(MiddlewareMixin):
 
         for qi in infos:
             if qi.time > query_limit:
-                log.warning(
-                    "[SQL] query execution of %d ms over absolute "
-                    "limit of %d ms: %s"
-                    % (
-                        qi.time * 1000,
-                        query_limit * 1000,
-                        # cls.truncate_sql(qi.sql),
-                        qi.sql,
-                    )
-                )
-                # Update Prometheus metrics for each file that executed a query
+                files = []
+                lines = []
                 for summary in qi.summaries:
                     if summary is not []:
-                        cls.sql_query_latency.labels(
-                            file=summary.filename, linenum=summary.lineno
+                        f = summary.filename
+                        linenum = summary.lineno
+                        files.append(f)
+                        lines.append(linenum)
+                        # Update Prometheus metrics for each file that executed
+                        # a query
+                        cls.sql_query_absolute_latency.labels(
+                            file=f, linenum=linenum
                         ).set(qi.time)
+                if files and lines:
+                    log.warning(
+                        "[SQL] query execution of %d ms over absolute "
+                        "limit of %d ms  in file %s, line number "
+                        "%d: %s",
+                        qi.time * 1000,
+                        query_limit * 1000,
+                        files[0],
+                        lines[0],
+                        qi.sql,
+                    )
+                else:
+                    log.warning(
+                        "[SQL] query execution of %d ms over absolute "
+                        "limit of %d ms: %s",
+                        qi.time * 1000,
+                        query_limit * 1000,
+                        qi.sql,
+                    )
 
 
     @staticmethod
