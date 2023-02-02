@@ -1,5 +1,6 @@
 from django.test import TestCase
 
+from django.conf import settings
 from .models import Author, Book, Publisher
 from .memorylog import MemoryHandler
 
@@ -103,19 +104,24 @@ class TestQueryInspect(TestCase):
         self.assertTrue('X-QueryInspect-Total-Request-Time' in response)
         self.assertEqual(response['X-QueryInspect-Duplicate-SQL-Queries'], '9')
 
-    def test_sql_truncate(self):
-        self.author = Author.objects.create(name='Author')
+    def test_non_debug_mode(self):
+        settings.DEBUG = False
+        self.test_single_query_view()
 
-        with self.settings(DEBUG=True):
-            response = self.client.get('/authors/')
+    # Since we log full sql query, we don't need to run this test
+    # def test_sql_truncate(self):
+    #     self.author = Author.objects.create(name='Author')
 
-        log = MemoryHandler.get_log()
-        lines = log.split('\n')
+    #     with self.settings(DEBUG=True):
+    #         response = self.client.get('/authors/')
 
-        has_truncated = False
-        for line in lines:
-            if 'SELECT "testapp_book"' in line and ' ... ' in line:
-                has_truncated = True
-                break
+    #     log = MemoryHandler.get_log()
+    #     lines = log.split('\n')
 
-        self.assertTrue(has_truncated, msg='Log didn\'t truncate SQL output')
+    #     has_truncated = False
+    #     for line in lines:
+    #         if 'SELECT "testapp_book"' in line and ' ... ' in line:
+    #             has_truncated = True
+    #             break
+
+    #     self.assertTrue(has_truncated, msg='Log didn\'t truncate SQL output')
